@@ -8,16 +8,6 @@ Personal Codex skills that are safe to sync across devices.
 - `codex-windows-oauth-repair`
 - `windows-microsoft-store-repair`
 
-## Excluded
-
-These were intentionally left out:
-
-- `autodl-devbox`
-- `payment-qr-handoff`
-- `pku-course`
-- `pku-mail`
-- `quark-drive`
-
 ## Install On Another Device
 
 Clone this repository, then run one of the installers from the repository root.
