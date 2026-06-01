@@ -1,0 +1,4 @@
+interface:
+  display_name: "Windows Microsoft Store Repair"
+  short_description: "Fix Store/App Installer proxy and UWP network issues"
+  default_prompt: "Use $windows-microsoft-store-repair to diagnose and repair Microsoft Store, App Installer, or UWP proxy connectivity failures on Windows."

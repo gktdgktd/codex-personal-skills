@@ -1,0 +1,4 @@
+interface:
+  display_name: "Browser Screenshot Delivery"
+  short_description: "Capture browser UI and deliver image files"
+  default_prompt: "Use $browser-screenshot-delivery to capture the current browser result and send me the image file."

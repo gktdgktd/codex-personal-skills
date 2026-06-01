@@ -1,0 +1,4 @@
+interface:
+  display_name: "Codex OAuth Repair"
+  short_description: "Fix Windows Codex plugin OAuth callbacks"
+  default_prompt: "Use $codex-windows-oauth-repair to diagnose and repair a Windows Codex plugin OAuth callback error."
