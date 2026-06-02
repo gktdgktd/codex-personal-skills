@@ -1,0 +1,4 @@
+interface:
+  display_name: "Codex Windows Computer Use Repair"
+  short_description: "Repair Codex Computer Use native pipe failures on Windows."
+  default_prompt: "Use $codex-windows-computer-use-repair to diagnose and repair Codex Computer Use native pipe failures on Windows."
