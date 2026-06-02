@@ -56,7 +56,7 @@ Get-CimInstance Win32_Process |
 The usual culprit is a stale Chrome native host:
 
 ```text
-...\ .codex\plugins\cache\openai-bundled\chrome\latest\extension-host\windows\x64\extension-host.exe
+...\.codex\plugins\cache\openai-bundled\chrome\latest\extension-host\windows\x64\extension-host.exe
 ```
 
 ## Repair
