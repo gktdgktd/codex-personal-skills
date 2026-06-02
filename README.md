@@ -5,6 +5,7 @@ Personal Codex skills that are safe to sync across devices.
 ## Included
 
 - `browser-screenshot-delivery`
+- `codex-windows-computer-use-repair`
 - `codex-windows-oauth-repair`
 - `windows-microsoft-store-repair`
 
