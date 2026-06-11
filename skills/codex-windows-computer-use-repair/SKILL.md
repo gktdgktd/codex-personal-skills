@@ -1,6 +1,6 @@
 ---
 name: codex-windows-computer-use-repair
-description: Diagnose and repair Windows Codex desktop failures where Computer Use is unavailable, new chats cannot get desktop control, the native pipe path is missing, or logs show "Windows Computer Use helper paths are unavailable", "missing-helper-path", "Computer Use native pipe path is unavailable", "SKY_CUA_NATIVE_PIPE_DIRECTORY" missing, or bundled marketplace EBUSY locks involving Chrome extension-host.
+description: Diagnose and repair Windows Codex desktop failures where Computer Use is unavailable, new chats cannot get desktop control, the native pipe path is missing, the Computer Use client cannot import its @oai/sky dependency, or logs show "Windows Computer Use helper paths are unavailable", "missing-helper-path", "Computer Use native pipe path is unavailable", "SKY_CUA_NATIVE_PIPE_DIRECTORY" missing, or bundled marketplace EBUSY locks involving Chrome extension-host.
 ---
 
 # Codex Windows Computer Use Repair
@@ -22,6 +22,7 @@ Treat these as strong indicators for this workflow:
 - Logs contain `bundled_plugins_marketplace_resolve_failed` with `EBUSY` while removing `.codex\.tmp\bundled-marketplaces\openai-bundled\plugins\chrome\extension-host\windows\x64`.
 - `~\.codex\.tmp\bundled-marketplaces\openai-bundled\plugins` contains only some bundled plugins, for example `chrome` but not `computer-use`.
 - A stale `extension-host.exe` under `.codex\plugins\cache\openai-bundled\chrome\...` predates the current Codex run.
+- Computer Use bootstrap fails before app listing with `Package subpath './dist/project/cua/sky_js/src/targets/windows/internal/computer_use_client_base.js' is not defined by "exports"` in the local `@oai/sky\package.json`.
 
 ## Diagnose
 
@@ -33,6 +34,26 @@ Find recent relevant log lines:
 $logRoot = Join-Path $env:LOCALAPPDATA 'Packages\OpenAI.Codex_2p2nqsd0c76g0\LocalCache\Local\Codex\Logs'
 rg -n "computer-use native pipe|Windows Computer Use helper paths|missing-helper-path|bundled_plugins_marketplace|EBUSY|SKY_CUA_NATIVE_PIPE_DIRECTORY" $logRoot
 ```
+
+If bootstrap failed with an `@oai/sky` package export error, include that string in the log search and inspect the active runtime package:
+
+```powershell
+rg -n "Package subpath|computer_use_client_base|@oai\\sky|exports|computer-use native pipe|bundled_plugins_marketplace" $logRoot
+
+$nodeRepl = Get-CimInstance Win32_Process |
+  Where-Object { $_.Name -eq 'node_repl.exe' -and $_.ExecutablePath -like "$env:LOCALAPPDATA\OpenAI\Codex\runtimes\cua_node\*" } |
+  Sort-Object CreationDate -Descending |
+  Select-Object -First 1
+$runtimeBin = Split-Path -Parent $nodeRepl.ExecutablePath
+$skyPackage = Join-Path $runtimeBin 'node_modules\@oai\sky\package.json'
+$skyRoot = Split-Path -Parent $skyPackage
+$internalFile = Join-Path $skyRoot 'dist\project\cua\sky_js\src\targets\windows\internal\computer_use_client_base.js'
+Get-Item -LiteralPath $skyPackage, $internalFile -ErrorAction SilentlyContinue |
+  Select-Object FullName, LastWriteTime, Length
+Get-Content -Raw -LiteralPath $skyPackage
+```
+
+Classify this separately from the missing-helper-path failure. If recent logs show `computer-use native pipe startup ready` and bundled marketplace added `browser`, `chrome`, `computer-use`, and `latex`, repeated cleanup restarts are unlikely to fix an `exports` mismatch by themselves.
 
 Inspect bundled plugin cache and temporary marketplace:
 
@@ -125,6 +146,37 @@ Start-Process powershell.exe -WindowStyle Hidden -ArgumentList "-NoProfile", "-E
 
 If a previous restart happened before killing the stale `extension-host.exe`, one second restart with the cleanup-first ordering above is reasonable. Do not keep restarting after the same failure repeats; collect the latest error and report it.
 
+If the current exact failure is the `@oai/sky` `Package subpath ... is not defined by "exports"` error and the internal file exists on disk, apply the smallest local runtime compatibility patch instead of repeatedly restarting. This patch is a workaround for the current `cua_node` runtime and may be overwritten by Codex/runtime updates:
+
+```powershell
+$nodeRepl = Get-CimInstance Win32_Process |
+  Where-Object { $_.Name -eq 'node_repl.exe' -and $_.ExecutablePath -like "$env:LOCALAPPDATA\OpenAI\Codex\runtimes\cua_node\*" } |
+  Sort-Object CreationDate -Descending |
+  Select-Object -First 1
+if (-not $nodeRepl) { throw "No active Codex node_repl.exe runtime found" }
+
+$runtimeBin = Split-Path -Parent $nodeRepl.ExecutablePath
+$skyPackage = Join-Path $runtimeBin 'node_modules\@oai\sky\package.json'
+$skyRoot = Split-Path -Parent $skyPackage
+$subpath = './dist/project/cua/sky_js/src/targets/windows/internal/computer_use_client_base.js'
+$internalFile = Join-Path $skyRoot 'dist\project\cua\sky_js\src\targets\windows\internal\computer_use_client_base.js'
+
+if (-not (Test-Path -LiteralPath $skyPackage)) { throw "Missing @oai/sky package.json: $skyPackage" }
+if (-not (Test-Path -LiteralPath $internalFile)) { throw "Missing internal Computer Use client base: $internalFile" }
+
+Copy-Item -LiteralPath $skyPackage -Destination "$skyPackage.bak-codex-computer-use" -Force
+$pkg = Get-Content -Raw -LiteralPath $skyPackage | ConvertFrom-Json
+if (-not $pkg.exports) {
+  $pkg | Add-Member -NotePropertyName exports -NotePropertyValue ([pscustomobject]@{})
+}
+if (-not ($pkg.exports.PSObject.Properties.Name -contains $subpath)) {
+  $pkg.exports | Add-Member -NotePropertyName $subpath -NotePropertyValue $subpath
+  $pkg | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $skyPackage -Encoding UTF8
+}
+```
+
+After applying the export workaround, reset the JavaScript kernel if the `js_reset` tool is available, then rerun the normal Computer Use bootstrap and `sky.list_apps()` verification. If the exact error changes to `Computer Use native pipe is unavailable`, switch back to the native-pipe/helper-path branch and report that new exact error.
+
 ## Verify
 
 After Codex relaunches, verify all three layers:
@@ -151,6 +203,8 @@ nodeRepl.write(JSON.stringify({ ok: true, appCount: apps.length }, null, 2));
 
 Any non-error response from `list_apps()` means the Windows helper and native pipe are reachable.
 
+If an `@oai/sky` export workaround was applied, verify that the normal `computer-use-client.mjs` import now reaches `sky.list_apps()`. Do not count the package edit alone as success.
+
 ## Report
 
 When fixed, state the concrete evidence:
@@ -159,5 +213,6 @@ When fixed, state the concrete evidence:
 - the current Computer Use plugin version path,
 - whether `codex-computer-use.exe` is running,
 - the repaired log line or native pipe ready line.
+- whether the `@oai/sky` package export workaround was applied, including the patched `package.json` path, if that was part of the fix.
 
 When not fixed, report the newest exact setup error and the newest relevant log lines. Avoid summarizing stale errors from before the restart as if they are still current.
