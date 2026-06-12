@@ -146,7 +146,7 @@ Start-Process powershell.exe -WindowStyle Hidden -ArgumentList "-NoProfile", "-E
 
 If a previous restart happened before killing the stale `extension-host.exe`, one second restart with the cleanup-first ordering above is reasonable. Do not keep restarting after the same failure repeats; collect the latest error and report it.
 
-If the current exact failure is the `@oai/sky` `Package subpath ... is not defined by "exports"` error and the internal file exists on disk, apply the smallest local runtime compatibility patch instead of repeatedly restarting. This patch is a workaround for the current `cua_node` runtime and may be overwritten by Codex/runtime updates:
+If the current exact failure is the `@oai/sky` `Package subpath ... is not defined by "exports"` error and the internal file exists on disk, apply the smallest local runtime compatibility patch instead of repeatedly restarting. This patch is a workaround for the current `cua_node` runtime and may be overwritten by Codex/runtime updates. When Codex updates, it may create a new `cua_node\<hash>` directory with a fresh `@oai/sky`; in that case, patch the active runtime discovered from the current `node_repl.exe`, not an older runtime path that happened to work before:
 
 ```powershell
 $nodeRepl = Get-CimInstance Win32_Process |
@@ -204,6 +204,45 @@ nodeRepl.write(JSON.stringify({ ok: true, appCount: apps.length }, null, 2));
 Any non-error response from `list_apps()` means the Windows helper and native pipe are reachable.
 
 If an `@oai/sky` export workaround was applied, verify that the normal `computer-use-client.mjs` import now reaches `sky.list_apps()`. Do not count the package edit alone as success.
+
+For a stronger smoke test after `list_apps()` succeeds, read state from a real targetable window. `get_window_state` must request `include_text`, `include_screenshot`, or both; a call with both set to `false` is invalid. If the chosen window is minimized, call `activate_window`, refresh with `get_window`, then retry:
+
+```js
+globalThis.apps = await sky.list_apps();
+const targetApp = apps.find((app) => app.windows?.length);
+if (!targetApp) {
+  throw new Error("No targetable windows available for Computer Use smoke test");
+}
+globalThis.targetWindow = await sky.get_window(targetApp.windows[0]);
+try {
+  globalThis.state = await sky.get_window_state({
+    window: targetWindow,
+    include_screenshot: false,
+    include_text: true,
+  });
+} catch (error) {
+  if (!/window is minimized/i.test(String(error?.message ?? error))) {
+    throw error;
+  }
+  await sky.activate_window({ window: targetWindow });
+  globalThis.targetWindow = await sky.get_window({
+    id: targetWindow.id,
+    app: targetWindow.app,
+  });
+  globalThis.state = await sky.get_window_state({
+    window: targetWindow,
+    include_screenshot: false,
+    include_text: true,
+  });
+}
+nodeRepl.write(
+  JSON.stringify(
+    { ok: true, appCount: apps.length, stateRead: true, window: state.window },
+    null,
+    2,
+  ),
+);
+```
 
 ## Report
 
